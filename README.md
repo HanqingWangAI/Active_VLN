@@ -68,7 +68,7 @@ Install jupyter using the following scripts. `pip install jupyter`
 Our code is built basing on [R2R-EnvDrop](https://github.com/airsplay/R2R-EnvDrop), please install the R2R environment for the python interpreter used in Jupyter following the installation [instructions](https://github.com/airsplay/R2R-EnvDrop#environment-installation).
 
 ## Quick Start
-**Inference**:
+#### Inference:
 1. Download the checkpoint of the agent to directory `snap/agent/state_dict/best_val_unseen`, the checkpoint of the speaker to directory `snap/speaker/state_dict/best_val_unseen_bleu`.
 2. Start a Jupyter server and run the jupyter notebook [evaluation.ipynb](evaluation.ipynb).
 
