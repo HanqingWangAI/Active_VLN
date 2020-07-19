@@ -1,4 +1,4 @@
-## Active VLN
+# Active VLN
 
 <div align="center">
     <img src="imgs/logo.png", width="700">
@@ -13,7 +13,7 @@ This repository is the implementation of our ECCV 2020 paper:
 
 -----------
 
-### Introduction
+## Introduction
 This work draws inspiration from human navigation behavior and endows an agent with an active information gathering ability for a more intelligent vision-language navigation policy. 
 
 To achieve this, we develop an active exploration module, which learns to 1) decide when the exploration is necessary, 2) identify which part of the surroundings is worth exploring, and 3) gather useful knowledge from the environment to support more robust navigation.
@@ -21,7 +21,7 @@ To achieve this, we develop an active exploration module, which learns to 1) dec
 Please refer to our paper for the detailed formulations.
 
 
-### Results
+## Results
 Here are some results on R2R dataset reported in our paper.
 #### Single Run Setting
 
@@ -60,30 +60,30 @@ Please refer to our paper for the comparsions with previous arts.
 
 
 
-### Environment Installation
+## Environment Installation
 - **Install Jupyter** 
 Install jupyter using the following scripts. `pip install jupyter`
 
 - **Install R2R environment via Jupyter**
 Our code is built basing on [R2R-EnvDrop](https://github.com/airsplay/R2R-EnvDrop), please install the R2R environment for the python interpreter used in Jupyter following the installation [instructions](https://github.com/airsplay/R2R-EnvDrop#environment-installation).
 
-### Quick Start
+## Quick Start
 **Inference**:
 1. Download the checkpoint of the agent to directory `snap/agent/state_dict/best_val_unseen`, the checkpoint of the speaker to directory `snap/speaker/state_dict/best_val_unseen_bleu`.
 2. Start a Jupyter server and run the jupyter notebook [evaluation.ipynb](evaluation.ipynb).
 
 
-### Contributors
+## Contributors
 To be updated.
 
-### TODO
+## TODO
 - [ ] Add training code.
 - [ ] Release the checkpoint.
 
 
 
 
-### Citation
+## Citation
 Please cite these papers in your publications if it helps your research:
 
     @inproceedings{wang2020active,
@@ -95,5 +95,5 @@ Please cite these papers in your publications if it helps your research:
 
 
 
-### License
+## License
 Active VLN is freely available for non-commercial use, and may be redistributed under these conditions. Please see the [license](LICENSE) for further details. For commercial license, please contact the authors.
