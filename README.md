@@ -98,5 +98,6 @@ Please cite these papers in your publications if it helps your research:
 Active VLN is freely available for non-commercial use, and may be redistributed under these conditions. Please see the [license](LICENSE) for further details. For commercial license, please contact the authors.
 
 ## Contact Information
-- wenguanwang[dot]ai[at]gmail[dot]com, Wenguan Wang
 - hanqingwang[at]bit[dot]edu[dot]cn, Hanqing Wang
+- wenguanwang[dot]ai[at]gmail[dot]com, Wenguan Wang
+
