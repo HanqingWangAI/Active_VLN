@@ -62,10 +62,10 @@ Please refer to our paper for the comparsions with previous arts.
 
 ## Environment Installation
 - **Install Jupyter** 
-Install jupyter using the following scripts. `pip install jupyter`
+  Install jupyter using the following scripts. `pip install jupyter`
 
 - **Install R2R environment via Jupyter**
-Our code is built basing on [R2R-EnvDrop](https://github.com/airsplay/R2R-EnvDrop), please install the R2R environment for the python interpreter used in Jupyter following the installation [instructions](https://github.com/airsplay/R2R-EnvDrop#environment-installation).
+  Our code is built basing on [R2R-EnvDrop](https://github.com/airsplay/R2R-EnvDrop), please install the R2R environment for the python interpreter used in Jupyter following the installation [instructions](https://github.com/airsplay/R2R-EnvDrop#environment-installation).
 
 ## Quick Start
 #### Inference:
