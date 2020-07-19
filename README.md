@@ -88,7 +88,7 @@ Please cite these papers in your publications if it helps your research:
 
     @inproceedings{wang2020active,
         title={Active Visual Information Gathering for Vision-Language Navigation},
-        author={Wang, Hanqing and Wang, Wenguan and Shu, Tianmin and Liang, Wei and  Shen, Jianbing},
+        author={Wang, Hanqing and Wang, Wenguan and Shu, Tianmin and Liang, Wei and Shen, Jianbing},
         booktitle=ECCV,
         year={2020}
     }
