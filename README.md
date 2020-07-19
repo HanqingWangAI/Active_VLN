@@ -49,7 +49,7 @@ Here are some results on R2R dataset reported in our paper.
 <center>
 
 | Set | SR↑    | TL↓  | SPL↑ |
-|:-------|:-----:|:-------:|:-------:|:-------:|:-------:|
+|:-------|:-----:|:-------:|:-------:|
 |Test Unseen| 0.70 | 204.4 | 0.05 |
 
 </center>
