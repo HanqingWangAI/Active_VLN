@@ -77,9 +77,8 @@ Our code is built basing on [R2R-EnvDrop](https://github.com/airsplay/R2R-EnvDro
 To be updated.
 
 ## TODO
-- [ ] Add training code.
 - [ ] Release the checkpoint.
-
+- [ ] Add training code.
 
 
 
