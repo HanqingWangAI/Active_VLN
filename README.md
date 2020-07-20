@@ -83,7 +83,7 @@ To be updated.
 
 
 ## Citation
-Please cite these papers in your publications if it helps your research:
+Please cite this paper in your publications if it helps your research:
 
     @inproceedings{wang2020active,
         title={Active Visual Information Gathering for Vision-Language Navigation},
