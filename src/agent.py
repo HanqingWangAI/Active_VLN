@@ -1696,6 +1696,53 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             model.train()
             optimizer.zero_grad()
 
+    def train(self, n_iters, feedback='teacher', **kwargs):
+        ''' Train for a given number of iterations '''
+        self.feedback = feedback
+
+        for module in self.models:
+            module.train()
+       
+        self.losses = []
+
+        for iter in range(1, n_iters + 1):
+            # print()
+            # print('======================= start rollout ',iter,' ===========================')
+            # print()
+            for optim in self.optimizers:
+                optim.zero_grad()
+            
+            self.loss = 0
+            if feedback == 'teacher':
+                self.feedback = 'teacher'
+                self.rollout(train_ml=args.teacher_weight, train_rl=False, train_exp=True, **kwargs)
+            elif feedback == 'sample':
+                if args.ml_weight != 0:
+                    self.feedback = 'teacher'
+                    self.rollout(train_ml=args.ml_weight, train_rl=False, train_exp=True, **kwargs)
+                self.feedback = 'sample'
+                self.rollout(train_ml=None, train_rl=True, **kwargs)
+            else:
+                assert False
+
+            self.loss.backward()
+
+            torch.nn.utils.clip_grad_norm(self.encoder.parameters(), 40.)
+            torch.nn.utils.clip_grad_norm(self.decoder.parameters(), 40.)
+            torch.nn.utils.clip_grad_norm(self.explorer.parameters(), 40.)
+
+            
+            self.encoder_optimizer.step()
+            self.decoder_optimizer.step()
+            self.explorer_optimizer.step()
+            self.linear_optimizer.step()
+            # self.policy_optimizer.step()
+            for opt in self.policy_optimizer:
+                opt.step()
+
+            self.critic_optimizer.step()
+            self.critic_exp_optimizer.step()
+            self.critic_policy_optimizer.step()
 
     def save(self, epoch, path):
         ''' Snapshot models '''
