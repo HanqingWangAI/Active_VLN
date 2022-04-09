@@ -318,6 +318,46 @@ class AttnGobalPolicyLSTM_v2(nn.Module):
         
         return prob, attn_cand_feat.squeeze(), h_1, c_1
 
+class AttnGobalPolicyLSTM_v4(nn.Module):
+    ''' An unrolled LSTM with attention over instructions for decoding navigation actions. '''
+
+    def __init__(self, hidden_size,
+                       dropout_ratio, feature_size=2048+4):
+        super(AttnGobalPolicyLSTM_v4, self).__init__()
+        self.feature_size = feature_size
+        self.hidden_size = hidden_size
+        
+        self.lrelu = nn.LeakyReLU(0.1)
+        self.linear_entropy = nn.Linear(1, self.hidden_size, bias=True)
+        self.linear_last = nn.Linear(self.hidden_size * 2, 1)
+
+    def forward(self, h1, entropy
+                ):
+        '''
+        Takes a single step in the decoder LSTM (allowing sampling).
+        cand_feat: batch x cand x (feature_size + angle_feat_size)
+        h1: batch x hidden_size
+        '''
+
+        # if not already_dropfeat and not cand_feat is None:
+        #     f = self.drop_env(cand_feat[..., :-args.angle_feat_size])
+        #     a = cand_feat[..., -args.angle_feat_size:]
+        #     cand_feat = torch.cat([f, a],-1)
+
+        # h1_drop = self.drop(h1)
+
+        entropy = entropy.unsqueeze(1) # batch x 1
+
+        target = self.linear_entropy(entropy).squeeze() # batch x 512
+        target = self.lrelu(target)
+        target = torch.cat([target,h1],-1) # batch x 1024
+        logit = self.linear_last(target).squeeze() # batch x 1
+
+        prob = torch.sigmoid(logit)
+        
+        return prob
+
+
 
 class FullyConnected2(nn.Module):
     def __init__(self, hidden_size, output_size):

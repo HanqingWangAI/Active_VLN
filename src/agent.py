@@ -6,6 +6,7 @@ import random
 import math
 import time
 
+from graph import GraphBatch
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -108,7 +109,7 @@ class BaseAgent(object):
                 if looped:
                     break
 
-class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add cost for each step
+class ActiveExplore_v1(BaseAgent): # this label is from entropy
     ''' An agent based on an LSTM seq2seq model with attention. '''
 
     # For now, the agent can't pick which forward move to make - just the one in the middle
@@ -124,7 +125,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
     }
 
     def __init__(self, env, results_path, tok, episode_len=20, scorer=None):
-        super(Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate, self).__init__(env, results_path)
+        super(ActiveExplore_v1, self).__init__(env, results_path)
         self.tok = tok
         self.episode_len = episode_len
         self.feature_size = self.env.feature_size
@@ -137,7 +138,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         self.encoder = model.EncoderLSTM(tok.vocab_size(), args.wemb, enc_hidden_size, padding_idx,
                                          args.dropout, bidirectional=args.bidir).cuda()
         self.decoder = model.AttnDecoderLSTM(args.aemb, args.rnn_dim, args.dropout, feature_size=self.feature_size + args.angle_feat_size).cuda()
-        self.policy = [model.AttnGobalPolicyLSTM_v2(args.rnn_dim, args.dropout, feature_size=self.feature_size + args.angle_feat_size).cuda() for i in range(6)]
+        self.policy = model.AttnGobalPolicyLSTM_v4(args.rnn_dim, args.dropout, feature_size=self.feature_size + args.angle_feat_size).cuda()
         self.explorer = model.AttnDecoderLSTM(args.aemb, args.rnn_dim, args.dropout, feature_size=self.feature_size + args.angle_feat_size).cuda()
         self.linear = model.FullyConnected2(args.rnn_dim, self.feature_size).cuda()
         self.critic = model.Critic().cuda()
@@ -148,21 +149,21 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         if not scorer is None:
             self.scorer = scorer
 
-        self.models = (self.encoder, self.decoder, *(self.policy), self.critic, self.explorer, self.linear, self.critic_exp, self.critic_policy)
+        self.models = (self.encoder, self.decoder, self.policy, self.critic, self.explorer, self.linear, self.critic_exp, self.critic_policy)
         self.models_part = (self.encoder, self.decoder, self.critic)
 
         # Optimizers
         self.encoder_optimizer = args.optimizer(self.encoder.parameters(), lr=args.lr * 0.05)
         self.decoder_optimizer = args.optimizer(self.decoder.parameters(), lr=args.lr * 0.05)
         self.critic_optimizer = args.optimizer(self.critic.parameters(), lr=args.lr)
-        self.policy_optimizer = [args.optimizer(self.policy[i].parameters(), lr=args.lr) for i in range(6)]
+        self.policy_optimizer = args.optimizer(self.policy.parameters(), lr=args.lr)
         self.explorer_optimizer = args.optimizer(self.explorer.parameters(), lr=args.lr)
         self.critic_exp_optimizer = args.optimizer(self.critic_exp.parameters(), lr=args.lr)
         self.critic_policy_optimizer = args.optimizer(self.critic_policy.parameters(), lr=args.lr)
 
         self.linear_optimizer = args.optimizer(self.linear.parameters(), lr=args.lr)
         
-        self.optimizers = (self.encoder_optimizer, self.decoder_optimizer, *(self.policy_optimizer), self.critic_optimizer, self.explorer_optimizer, self.linear_optimizer,self.critic_exp_optimizer,self.critic_policy_optimizer)
+        self.optimizers = (self.encoder_optimizer, self.decoder_optimizer, self.policy_optimizer, self.critic_optimizer, self.explorer_optimizer, self.linear_optimizer,self.critic_exp_optimizer,self.critic_policy_optimizer)
 
         # Evaluations
         self.losses = []
@@ -177,6 +178,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         self.logs = defaultdict(list)
         print('Initialization finished')
         
+
     def _sort_batch(self, obs):
         ''' Extract instructions from a list of observations and sort by descending
             sequence length (to enable PyTorch packing). '''
@@ -311,7 +313,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         dist_before = np.array([ob['distance'] for ob in perm_obs_temp])
 
         self.env.env.newEpisodes(scanIds,viewpoints,headings,elevations)
-        reward = (dist_before > dist_after).astype(np.float32) - (dist_before < dist_after).astype(np.float32) + 3 * ((dist_after < 3).astype(np.float32) - (dist_after > 3).astype(np.float32)) * (cpu_a_t_after == -1).astype(np.float32) - 0.1
+        reward = (dist_before > dist_after).astype(np.float32) - (dist_before < dist_after).astype(np.float32) + 3 * ((dist_after < 3).astype(np.float32) - (dist_after > 3).astype(np.float32)) * (cpu_a_t_after == -1).astype(np.float32)
         # return torch.from_numpy(reward).cuda().float()
         return reward
 
@@ -340,18 +342,11 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         self.env.env.newEpisodes(scanIds,viewpoints,headings,elevations)
         return (dist_before > dist_after).astype(np.float32)
 
-    def policy_module(self, cand_feat, h1_temp, c_t_temp, entropy, t):
-        batch_size = h1_temp.shape[0]
-        if t < 6:
-            return self.policy[t](cand_feat, h1_temp, c_t_temp, entropy)
-        else:
-            return torch.ones(batch_size).cuda(), torch.zeros(batch_size,cand_feat.shape[-1]).cuda(), torch.zeros_like(h1_temp).cuda(), torch.zeros_like(c_t_temp).cuda()
-        
 
     def exploration(self, explore_env, cand_feat, mark_cand,
     h_t, h1, c_t,
     ctx, ctx_mask, batch_size,
-    perm_idx, speaker, explore_flag, noise, explore_length=4,exp_il=True):
+    perm_idx, speaker, explore_flag, noise, explore_length=4):
         # mark_cand: 2-D tensor, shape: batch_size x max_candidate_length + 1
         # explore_length = 4
         others = 0.
@@ -361,8 +356,6 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         masks = []
         hidden_states = []
         policy_log_probs = []
-        ml_loss_exp = 0.
-        
 
         
         dim = h1.shape[1]
@@ -381,8 +374,6 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         } for ob in perm_obs_exp]
         
         input_a_t, f_t, candidate_feat, candidate_leng = self.get_input_feat(perm_obs_exp)
-
-        candidate_mask = utils.length2mask(candidate_leng)
 
         candidate_leng_ori = candidate_leng
         for i,l in enumerate(candidate_leng):
@@ -404,7 +395,6 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                                             already_dropfeat=(speaker is not None)
                                             )
         # print('markcand',mark_cand)
-        logit_mask = logit.masked_fill(candidate_mask,-float('inf'))
         logit.masked_fill_(mark_cand, -float('inf'))
         hidden_states.append(h_t)
 
@@ -433,11 +423,6 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             if next_id == (candidate_leng[i]-1) or next_id == args.ignoreid:    # The last action is <end>
                 cpu_a_t[i] = -1             # Change the <end> and ignore action to -1
 
-        # Supervised training
-        if exp_il:
-            target = self._teacher_action(perm_obs_exp, ~explore_flag)
-            ml_loss_exp += (self.criterion(logit_mask, target) * explore_flag.float()).sum()
-
         self.make_equiv_action(explore_env, cpu_a_t, perm_obs_exp, perm_idx, traj)
 
         
@@ -460,7 +445,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                 reward[i] = 0
                 mask[i] = 0
 
-        rewards.append(reward)
+        rewards.append(reward) 
         masks.append(mask)
         
         for l in range(explore_length):
@@ -469,6 +454,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
 
             obs_exp = np.array(explore_env._get_obs())
             perm_obs_exp = obs_exp[perm_idx]                    # Perm the obs for the res
+            self.graphs.add_edge(perm_obs_exp)
 
             input_a_t, f_t, candidate_feat, candidate_leng = self.get_input_feat(perm_obs_exp)
 
@@ -505,11 +491,6 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
 
             finish_new = (~ended) & torch.from_numpy(cpu_a_t == -1).cuda() # just finished
             h1_final = h1_final + h1 * finish_new.repeat(args.rnn_dim,1).permute(1,0).float()
-
-            # Supervised training
-            if exp_il:
-                target = self._teacher_action(perm_obs_exp, ended)
-                ml_loss_exp += (self.criterion(logit, target) * (~ended).float()).sum()
 
             self.make_equiv_action(explore_env, cpu_a_t, perm_obs_exp, perm_idx, traj)
 
@@ -576,16 +557,10 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         for i,l in enumerate(candidate_leng_ori):
             mark_cand[i,l-1] = True # if still has direction not been explored, cannot choose stop
 
-        if exp_il:
-            ml_loss_exp /= batch_size * 4 * 4
-            self.loss += 0.1 * ml_loss_exp
-            self.logs['ml_loss_exp'].append(ml_loss_exp)
-
-
         return cand_res, mark_cand, rewards, masks, hidden_states, policy_log_probs, traj
 
 
-    def rollout(self, train_ml=None, train_rl=True, reset=True, speaker=None, filter_loss=False, train_exp=False, train_exp_flag=True, traj_flag=True, cand_dir_num=100, exp_rl=True, exp_il=True):
+    def rollout(self, train_ml=None, train_rl=True, reset=True, speaker=None, filter_loss=False, train_exp=False, train_exp_flag=True, traj_flag=True, cand_dir_num=100,ths=None):
         """
         :param train_ml:    The weight to train with maximum likelihood
         :param train_rl:    whether use RL in training
@@ -605,6 +580,9 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             obs = np.array(self.env._get_obs())
 
         batch_size = len(obs)
+
+        self.graphs = GraphBatch(batch_size)
+        
 
 
         if speaker is not None:         # Trigger the self_train mode!
@@ -630,6 +608,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         # Reorder the language input for the encoder (do not ruin the original code)
         seq, seq_mask, seq_lengths, perm_idx = self._sort_batch(obs)
         perm_obs = obs[perm_idx]
+        self.graphs.add_edge(perm_obs)
 
         ctx, h_t, c_t = self.encoder(seq, seq_lengths)
         ctx_mask = seq_mask
@@ -670,6 +649,8 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
 
         policy_entropy = 0.
         
+        if ths is None:
+            ths = np.zeros(self.episode_len)
         
 
         h1 = h_t
@@ -743,6 +724,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             label_list = []
             mask_list = []
             prob_list = []
+            teacher = []
             while True:
                 times += 1
                 if times > cand_dir_num:
@@ -750,36 +732,47 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                 if times > max_candidate_length + 1:
                     print('error')
                 ### whether to explore
-                # prob = self.policy_module(h1_temp, entropy,t)
-                prob, attn_cand_feat, h1_temp, c_t_temp = self.policy_module(cand_feat, h1_temp, c_t_temp, entropy, t)
+                prob = self.policy(h1_temp, entropy)
 
                 if self.feedback == 'argmax':
                     a_t = prob > 0.5
-                    a_t = torch.ones_like(prob).cuda() > 0 # for training, 
+                    # a_t = torch.ones_like(prob).cuda() > 0 # for training, 
                 else:
-                    c = torch.distributions.Categorical(torch.stack([prob,1-prob],-1))
-                    a = c.sample().detach()
-                    a_t = (a == 0)
+                    # c = torch.distributions.Categorical(torch.stack([prob,1-prob],-1))
+                    # a = c.sample().detach()
+                    # a_t = (a == 0)
                     # print(a_t)
                     a_t = torch.ones_like(prob).cuda() > 0 # for training, execute each exploration
 
+                label = (entropy > ths[t]).detach().cpu().numpy()
+                teacher.append(label)
+                
+
                 # print(a_t.shape)
-                explore_flag = a_t & (~ended_exp) # if already stop should not explore
-                self.logs['prob_%d'%t].append((prob.detach()*(~ended_exp).float()).cpu().numpy())
+                explore_flag = (entropy > ths[t]) & (~ended_exp) # if already stop should not explore
+                self.logs['prob'].append((prob.detach()*(~ended_exp).float()).cpu().numpy())
                     
 
-     
+                # print('end',ended_exp)
+                # if ended_exp.all():
+                #     break
+
+                # print('explore_flag',explore_flag)
+                # print('mark_cand',mark_cand)
                 cand_res, mark_cand, rewards_exp, masks, hidden_states_exp, policy_log_probs_exp, tj = self.exploration(self.env, cand_feat, mark_cand,
                                     h_t, h1, c_t,
                                     ctx, ctx_mask, batch_size,
-                                    perm_idx, speaker, explore_flag, noise,exp_il=exp_il)
+                                    perm_idx, speaker, explore_flag, noise)
                 
-
+                # print('mark_cand_after',mark_cand)
+                # print('cand_res', cand_res)
                 f = cand_feat[..., :-args.angle_feat_size] + cand_res
                 a = cand_feat[..., -args.angle_feat_size:]
 
                 cand_feat = torch.cat([f, a],-1)
+                # print('cand_res',cand_res)
 
+                
                 
                 _, _, logit_after, _, _ ,_ = self.decoder(input_a_t, f_t, cand_feat, 
                                     h_t, h1, c_t,
@@ -796,7 +789,8 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                         cpu_a_t_after[i] = -1             # Change the <end> and ignore action to -1
 
                 # print('mark',times,mark_cand)
-                rewards_change = self.make_reward(cpu_a_t_after ,cpu_a_t_before, perm_idx) # batch_size
+                rewards_change = self.make_reward(cpu_a_t_after
+                ,cpu_a_t_before, perm_idx) # batch_size
 
                 probs = F.softmax(logit_after, 1)    # sampling an action from model
                 c = torch.distributions.Categorical(probs)
@@ -818,9 +812,8 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                 label_list.append(label)
                 prob_list.append(prob)
                     
-                mask = np.array((~ended_exp).cpu().numpy()).astype(np.float32) # policy not finished yet
-                mask_list.append(mask)
-                if exp_rl:
+
+                if self.feedback != 'argmax':
                     ##########################################
                     ###                                    ###
                     ###        RL for explorer start.      ###
@@ -866,39 +859,40 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                     ##########################################
                     
                     policy_state.append(torch.cat([attn_cand_feat,h1_temp],-1))
-                    
+                    mask = np.array((~ended_exp).cpu().numpy()).astype(np.float32) # policy not finished yet
                     
                     reward = np.array(rewards_change).astype(np.float32) * mask - 0 * explore_flag.cpu().numpy() # if decide to explore , get -0.5
                     masks_policy.append(mask)
                     rewards_policy.append(reward)
-                    log_prob = a_t.float()*torch.log(prob+1e-6) + (1-a_t.float()) * torch.log((1-prob)+1e-6)
+                    log_prob = a_t.float()*torch.log(prob+1e-6) + (1-a_t.float())*torch.log((1-prob)+1e-6)
                     log_prob_policy.append(log_prob)
-                    
+                    mask_list.append(mask)
                     
                     # rl_loss_policy += (- torch.log(prob+1e-6) * torch.from_numpy(rewards_change).cuda().float() * (~ended_exp).float()).sum()
                     # print('rl_loss',rl_loss_policy,'prob',prob)
                 
+
                 ended_exp = ended_exp | (~explore_flag) # if decided not to explore
                 ended_exp = ended_exp | mark_cand.all(1) # if all direction has been explored
 
                 if ended_exp.all():
                     break
             
-            if exp_il:
-                p = np.ones(batch_size)*(-1)
-                for i, label in enumerate(label_list): # length
-                    for j, _ in enumerate(label): # batch
-                        if _ and p[j] == -1:
-                            p[j] = i
+            if self.feedback != 'argmax':
+                # p = np.ones(batch_size)*(-1)
+                # for i, label in enumerate(label_list): # length
+                #     for j, _ in enumerate(label): # batch
+                #         if _ and p[j] == -1:
+                #             p[j] = i
                 
-                teacher = []
-                for i in range(len(label_list)):
-                    a_t = np.zeros(batch_size)
-                    for j, position in enumerate(p): # batch
-                        if i <= position:
-                            a_t[j] = 1
+                # teacher = []
+                # for i in range(len(label_list)):
+                #     a_t = np.zeros(batch_size)
+                #     for j, position in enumerate(p): # batch
+                #         if i <= position:
+                #             a_t[j] = 1
 
-                    teacher.append(a_t)
+                #     teacher.append(a_t)
                 
                 for i, a_t in enumerate(teacher):
                     total_chance += mask_list[i].sum()
@@ -907,7 +901,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                     mask = torch.from_numpy(mask_list[i]).cuda().float()
                     a_t = torch.from_numpy(a_t).cuda().float()
                 
-                    ml_loss_policy += (-(torch.log(prob+1e-6) * a_t * 10 + torch.log(1-prob+1e-6) * (1-a_t)) * mask).sum()
+                    ml_loss_policy += (-(torch.log(prob+1e-6) * a_t + torch.log(1-prob+1e-6) * (1-a_t)) * mask).sum()
                     
                     c = torch.distributions.Categorical(torch.stack([prob,1-prob],-1))
                     policy_entropy += (c.entropy() * mask).sum()
@@ -932,6 +926,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                                     already_dropfeat=(speaker is not None)
                                     )
             
+
             hidden_states.append(h_t)
 
             if args.submit:     # Avoding cyclic path
@@ -946,6 +941,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             # Supervised training
             target = self._teacher_action(perm_obs, ended)
             ml_loss_list.append(self.criterion(logit, target))
+
 
             # Determine next model inputs
             if self.feedback == 'teacher':
@@ -969,6 +965,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                 print(self.feedback)
                 sys.exit('Invalid feedback option')
 
+            
             # Prepare environment action
             # NOTE: Env action is in the perm_obs space
             cpu_a_t = a_t.cpu().numpy()
@@ -985,6 +982,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             self.make_equiv_action(self.env, cpu_a_t, perm_obs, perm_idx, traj)
             obs = np.array(self.env._get_obs())
             perm_obs = obs[perm_idx]                    # Perm the obs for the resu
+            self.graphs.add_edge(perm_obs)
 
             # Calculate the mask and reward
             dist = np.zeros(batch_size, np.float32)
@@ -1039,7 +1037,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         self.logs['explore_cnt'].append(explore_cnt)
         self.logs['all_cnt'].append(cnt)
 
-        if exp_rl:
+        if self.feedback != 'argmax':
             discount_reward = np.zeros(batch_size, np.float32)  # The inital reward is zero
 
             length = len(rewards_policy)
@@ -1115,21 +1113,23 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             self.loss += ml_loss * train_ml / batch_size
             self.logs['losses_ml'].append((ml_loss * train_ml / batch_size).item() / self.episode_len)
         
+        rl_loss_exp /= batch_size
+        rl_loss_policy /= batch_size
         
-        
-        if exp_il:
+        if self.feedback != 'argmax':
             print('label explore rate',total_explore/total_chance)
+        # if np.isnan(rl_loss_exp.item()):
+        #     print('warning, nan is detected.','rl_loss_exp',rl_loss_exp)
 
-        if exp_rl:
-            rl_loss_exp /= batch_size
-            rl_loss_policy /= batch_size
-            self.loss += (rl_loss_exp + rl_loss_policy)
+        # if np.isnan(rl_loss_policy.item()):
+        #     print('warning, nan is detected.','rl_loss_policy',rl_loss_policy)
 
-        if exp_il:
-            ml_loss_policy = ml_loss_policy / batch_size
-            policy_entropy = policy_entropy / batch_size
-            self.loss += ml_loss_policy + policy_entropy
-        
+        # self.loss += rl_loss_exp + rl_loss_policy
+        # self.loss += rl_loss_policy
+        ml_loss_policy = ml_loss_policy / batch_size
+        policy_entropy = policy_entropy / batch_size
+        self.loss += ml_loss_policy + policy_entropy
+        traj = self.late_action_taking(traj, self.graphs)
         # self.loss += rl_loss_exp
         if type(policy_entropy) is float or type(policy_entropy) is int:
             self.logs['policy_entropy'].append(0.)
@@ -1373,6 +1373,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
 
         return results
     
+
     def _dijkstra_exp(self):
         """
         The dijkstra algorithm.
@@ -1679,15 +1680,27 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         ''' Evaluate once on each instruction in the current environment '''
         self.feedback = feedback
         if use_dropout:
-            for module in self.models:
-                module.train()
+            self.encoder.train()
+            self.decoder.train()
+            self.linear.train()
+            self.explorer.train()
+            self.policy.train()
+            self.critic.train()
+            self.critic_exp.train()
+            self.critic_policy.train()
             
         else:
-            for module in self.models:
-                module.eval()
+            self.encoder.eval()
+            self.decoder.eval()
+            self.linear.eval()
+            self.explorer.eval()
+            self.policy.eval()
+            self.critic.eval()
+            self.critic_exp.eval()
+            self.critic_policy.eval()
 
         with torch.no_grad():
-            super(Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate, self).test(iters, **kwargs)
+            super(ActiveExplore_v1, self).test(iters, **kwargs)
     
     def zero_grad(self):
         self.loss = 0.
@@ -1696,21 +1709,64 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             model.train()
             optimizer.zero_grad()
 
+    def accumulate_gradient(self, feedback='teacher', **kwargs):
+        if feedback == 'teacher':
+            self.feedback = 'teacher'
+            self.rollout(train_ml=args.teacher_weight, train_rl=False, **kwargs)
+        elif feedback == 'sample':
+            self.feedback = 'teacher'
+            self.rollout(train_ml=args.ml_weight, train_rl=False, **kwargs)
+            self.feedback = 'sample'
+            self.rollout(train_ml=None, train_rl=True, **kwargs)
+        else:
+            assert False
+
+    def optim_step(self):
+        self.loss.backward()
+
+        torch.nn.utils.clip_grad_norm(self.encoder.parameters(), 40.)
+        torch.nn.utils.clip_grad_norm(self.decoder.parameters(), 40.)
+        torch.nn.utils.clip_grad_norm(self.explorer.parameters(), 40.)
+        
+
+        self.encoder_optimizer.step()
+        self.decoder_optimizer.step()
+        self.explorer_optimizer.step()
+        self.critic_optimizer.step()
+        self.critic_exp_optimizer.step()
+
     def train(self, n_iters, feedback='teacher', **kwargs):
         ''' Train for a given number of iterations '''
         self.feedback = feedback
 
-        for module in self.models:
-            module.train()
+        self.encoder.train()
+        self.decoder.train()
+        self.linear.train()
+        self.explorer.train()
+        self.policy.train()
+        self.critic.train()
+        self.critic_exp.train()
+        self.critic_policy.train()
        
+
         self.losses = []
+
 
         for iter in range(1, n_iters + 1):
             # print()
             # print('======================= start rollout ',iter,' ===========================')
             # print()
-            for optim in self.optimizers:
-                optim.zero_grad()
+            self.encoder_optimizer.zero_grad()
+            self.decoder_optimizer.zero_grad()
+            self.explorer_optimizer.zero_grad()
+            self.linear_optimizer.zero_grad()
+            self.policy_optimizer.zero_grad()
+
+            self.critic_optimizer.zero_grad()
+            self.critic_exp_optimizer.zero_grad()
+            self.critic_policy_optimizer.zero_grad()
+
+            
             
             self.loss = 0
             if feedback == 'teacher':
@@ -1720,8 +1776,8 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
                 if args.ml_weight != 0:
                     self.feedback = 'teacher'
                     self.rollout(train_ml=args.ml_weight, train_rl=False, train_exp=True, **kwargs)
-                self.feedback = 'sample'
-                self.rollout(train_ml=None, train_rl=True, **kwargs)
+                # self.feedback = 'sample'
+                # self.rollout(train_ml=None, train_rl=True, **kwargs)
             else:
                 assert False
 
@@ -1732,17 +1788,19 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             torch.nn.utils.clip_grad_norm(self.explorer.parameters(), 40.)
 
             
-            self.encoder_optimizer.step()
-            self.decoder_optimizer.step()
+
+            # self.encoder_optimizer.step()
+            # self.decoder_optimizer.step()
             self.explorer_optimizer.step()
             self.linear_optimizer.step()
             # self.policy_optimizer.step()
-            for opt in self.policy_optimizer:
-                opt.step()
 
-            self.critic_optimizer.step()
-            self.critic_exp_optimizer.step()
-            self.critic_policy_optimizer.step()
+            # self.critic_optimizer.step()
+            # self.critic_exp_optimizer.step()
+            # self.critic_policy_optimizer.step()
+
+            # torch.cuda.empty_cache()
+
 
     def save(self, epoch, path):
         ''' Snapshot models '''
@@ -1757,7 +1815,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             }
         all_tuple = [("encoder", self.encoder, self.encoder_optimizer),
                      ("decoder", self.decoder, self.decoder_optimizer),
-                     *[("policy_%d"%i, self.policy[i], self.policy_optimizer[i]) for i in range(6)],
+                     ("policy", self.policy, self.policy_optimizer),
                      ("explorer", self.explorer, self.explorer_optimizer),
                      ("linear", self.linear, self.linear_optimizer),
                      ("critic", self.critic, self.critic_optimizer),
@@ -1821,8 +1879,7 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
         else:
             all_tuple = [("encoder", self.encoder, self.encoder_optimizer),
                      ("decoder", self.decoder, self.decoder_optimizer),
-                    #  ("policy", self.policy, self.policy_optimizer),
-                    *[("policy_%d"%i, self.policy[i], self.policy_optimizer[i]) for i in range(6)],
+                     ("policy", self.policy, self.policy_optimizer),
                      ("explorer", self.explorer, self.explorer_optimizer),
                      ("linear", self.linear, self.linear_optimizer),
                      ("critic", self.critic, self.critic_optimizer),
@@ -1833,35 +1890,34 @@ class Seq2SeqAgent_independ_exp_global_policy_A2C_IL_seperate(BaseAgent): # add 
             recover_state(*param)
         return states['encoder']['epoch'] - 1
 
-    def load_nav(self, path, part=False):
-        ''' Loads parameters (but not training state) '''
-        states = torch.load(path)
-        def recover_state(name, model, optimizer):
-            state = model.state_dict()
-            model_keys = set(state.keys())
-            load_keys = set(states[name]['state_dict'].keys())
-            if model_keys != load_keys:
-                print("NOTICE: DIFFERENT KEYS IN THE LISTEREN")
-            state.update(states[name]['state_dict'])
-            model.load_state_dict(state)
-            if args.loadOptim:
-                optimizer.load_state_dict(states[name]['optimizer'])
-        if part:
-            all_tuple = [("encoder", self.encoder, self.encoder_optimizer),
-                        ("decoder", self.decoder, self.decoder_optimizer),
-                        ("critic", self.critic, self.critic_optimizer)
-                        ]
-        else:
-            all_tuple = [("encoder", self.encoder, self.encoder_optimizer),
-                     ("decoder", self.decoder, self.decoder_optimizer),
-                    #  ("policy", self.policy, self.policy_optimizer),
-                    # *[("policy_%d"%i, self.policy[i], self.policy_optimizer[i]) for i in range(6)],
-                    #  ("explorer", self.explorer, self.explorer_optimizer),
-                    #  ("linear", self.linear, self.linear_optimizer),
-                    #  ("critic", self.critic, self.critic_optimizer),
-                    #  ("critic_exp", self.critic_exp, self.critic_exp_optimizer),
-                    #  ("critic_policy", self.critic_policy, self.critic_policy_optimizer)
-                    ]
-        for param in all_tuple:
-            recover_state(*param)
-        return states['encoder']['epoch'] - 1
+    def late_action_taking(self, traj, graph: GraphBatch):
+        res = []
+        paths = graph.get_paths()
+
+        for i, case in enumerate(traj):
+            data = {}
+            data['instr_id'] = case['instr_id']
+            path = case['path']
+            tmp = [path[0]]
+            vs = set([path[0][0]])
+            for p in path:
+                if p[0] in vs:
+                    continue
+                if p[0] == path[-1][0]:
+                    break
+                
+                u = tmp[-1][0]
+                v = p[0]
+                # print(u, v)
+                tunnel = paths[i][u][v]
+
+                # tmp.append(p)
+                for vp in tunnel:
+                    tmp.append((vp,0,0))
+                vs.add(p[0])
+
+            tmp.append(path[-1])  
+            data['path'] = tmp
+            res.append(data)
+
+        return res

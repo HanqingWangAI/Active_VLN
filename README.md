@@ -69,15 +69,15 @@ Please refer to our paper for the comparsions with previous arts.
 
 ## Quick Start
 #### Inference:
-1. Download the checkpoint of the agent to directory `snap/agent/state_dict/best_val_unseen`, the checkpoint of the speaker to directory `snap/speaker/state_dict/best_val_unseen_bleu`.
+1. Download the checkpoint of the agent to directory `snap/agent/state_dict/best_val_unseen`. The checkpoint is available on [Google Drive](https://drive.google.com/drive/folders/1h0GDUHtxttNQSa2cCxABulXs3pEqW6gV?usp=sharing).
 2. Start a Jupyter service and run the jupyter notebook [evaluation.ipynb](evaluation.ipynb).
 
 
-## Contributors
-To be updated.
+<!-- ## Contributors
+To be updated. -->
 
 ## TODO
-- [ ] Release the checkpoint.
+- [x] Release the checkpoint.
 - [ ] Add training code.
 
 
